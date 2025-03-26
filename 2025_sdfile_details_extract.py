@@ -630,13 +630,10 @@ def extract_support_hours(df):
 
     # Define keyword mappings to corresponding dictionary keys
     keyword_map = {
-        rf"(?<![\w-]){re.escape("non-emergency")}(?![\w-])": "Non-Emergency Support",
-        # Matches "nonemergency", "non-emergency", "non emergency"
-        rf"(?<![\w-]){re.escape("emergency")}(?![\w-])": "Emergency Support",  # Matches standalone "emergency"
+        rf"(?<![\w-]){re.escape('non-emergency')}(?![\w-])": "Non-Emergency Support",
+        rf"(?<![\w-]){re.escape('emergency')}(?![\w-])": "Emergency Support",
         r"\b1st\s*level\b|\b1st\s*\+?\s*level\s*support\b": "1st Level Support",
-        # Matches variations like "1stlevel", "1st level", "1st+level support"
         r"\b2nd\s*level\b|\b2nd\s*\+?\s*level\s*support\b": "2nd Level Support"
-        # Matches variations like "2ndlevel", "2nd level", "2nd+level support"
     }
 
     for idx, row in df.iterrows():
@@ -722,7 +719,6 @@ def extract_dataframes_from_support_hour_pages(pdf_path, page_numbers):
 
 # Function to extract the ros details from ros tables
 def extract_ros_details(dataframes):
-
     ros_support_details = {
         "1st Level Support": "",
         "2nd / 3rd Level Support": ""
@@ -776,7 +772,6 @@ def extract_ros_details(dataframes):
 
 # Function to check if the extracted headers match the given pattern
 def header_matches(headers, pattern):
-
     # Wildcard-based check (requires exact column count)
     if "*" in pattern:
         if len(headers) != len(pattern):
@@ -794,7 +789,6 @@ def header_matches(headers, pattern):
 
 # Function to extract all the tables from the ros pages
 def extract_dataframes_from_ros_pages(pdf_path, page_numbers):
-
     extracted_dataframes = []
 
     # Sample list of values to check
@@ -1036,8 +1030,6 @@ def insert_data_to_excel(excel_path, bsn_value, response_time_list, resolution_t
     # print(f"\n{updated_df}")
     updated_df.to_excel(excel_path, index=False)
 
-    print(f"\nAll data inserted into {excel_path} successfully.")
-
 
 # =============
 # Main method
@@ -1080,28 +1072,31 @@ def main(pdf_path, excel_path):
     # ----------------------------------------------------------------------------------------------------------------------#
 
     ### Extract Support Hour details
-    support_hour_list = []
     support_hour_start_text = r"\d+\.\d+(\.\d+)?\sService (Time|Times)"
     support_hour_end_text = r"\d+\.\d+(\.\d+)?\sIncident (Management|Response Time|Resolution Time)"
-    _, _, support_hour_pages = create_page_list(pdf_path, support_hour_start_text, support_hour_end_text)
+
+    start_pages, end_pages, support_hour_pages = create_page_list(
+        pdf_path, support_hour_start_text, support_hour_end_text
+    )
+
+    support_hour_dict = {
+        "1st Level Support": "",
+        "2nd Level Support": "",
+        "Emergency Support": "",
+        "Non-Emergency Support": ""
+    }
 
     if support_hour_pages:
         dataframes = extract_dataframes_from_support_hour_pages(pdf_path, support_hour_pages)
+
         for dataframe in dataframes:
-            temp_support_hour_value = extract_support_hours(dataframe)
-
-            if temp_support_hour_value:  # Only append if not None
-                if isinstance(temp_support_hour_value, list):  # Handle nested lists
-                    support_hour_list.extend(
-                        [sh for sh in temp_support_hour_value if sh])  # Flatten & remove empty values
-                else:
-                    support_hour_list.append(temp_support_hour_value)
-
-    support_hour_list = support_hour_list or []  # If None, replace with empty list
-    filtered_support_hours = [sh for sh in support_hour_list if sh]  # Remove None & empty strings
-
-    if not filtered_support_hours:
-        filtered_support_hours = [""]
+            temp_support_hour_values = extract_support_hours(dataframe)
+            # Update only if value is present
+            support_hour_dict.update({
+                key: temp_support_hour_values[key]
+                for key in support_hour_dict
+                if temp_support_hour_values.get(key)
+            })
     # ----------------------------------------------------------------------------------------------------------------------#
 
     ### Extract Run of Service details
@@ -1122,7 +1117,7 @@ def main(pdf_path, excel_path):
 
     ### Insert extracted data into Excel
     insert_data_to_excel(excel_path, bsn_value, response_time_list, resolution_time_list,
-                         extracted_material_data, extracted_drc_value, filtered_support_hours, ros_support_details)
+                         extracted_material_data, extracted_drc_value, support_hour_dict, ros_support_details)
 
 
 # =============================
