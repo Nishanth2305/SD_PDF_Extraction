@@ -614,27 +614,47 @@ def extract_all_tables_from_drc_page(pdf_path, page_number):
 
 # Function to extract the support hour value
 def extract_support_hours(df):
-    target_keywords = ["nonemergency", "2ndlevelsupport", "supporttimechange", "supporttimeforchanges",
-                       "supporttimechanges", "2ndlevel",
-                       "2ndlevel+"]  # Normalized keywords
+    # Dictionary to store extracted values
+    support_dict = {
+        "1st Level Support": "",
+        "2nd Level Support": "",
+        "Emergency Support": "",
+        "Non-Emergency Support": ""
+    }
 
-    # for df in dataframes:
     if df.empty or df.shape[1] < 2:  # Ensure valid DataFrame with at least 2 columns
-        return None
+        return support_dict  # Return empty structure if input is invalid
 
-    # Normalize first column (remove spaces, special characters, and convert to lowercase)
-    df.iloc[:, 0] = df.iloc[:, 0].astype(str).apply(lambda x: re.sub(r'[^a-zA-Z0-9]', '', x).lower())
+    # Normalize the first column (remove spaces, convert to lowercase, but keep special characters)
+    df.iloc[:, 0] = df.iloc[:, 0].astype(str).fillna("").str.replace("\n", "").str.lower()
 
-    for keyword in target_keywords:
-        # Find matching row index
-        match_idx = df[df.iloc[:, 0].str.contains(keyword, na=False, regex=True)].index
+    # Define keyword mappings to corresponding dictionary keys
+    keyword_map = {
+        rf"(?<![\w-]){re.escape("non-emergency")}(?![\w-])": "Non-Emergency Support",
+        # Matches "nonemergency", "non-emergency", "non emergency"
+        rf"(?<![\w-]){re.escape("emergency")}(?![\w-])": "Emergency Support",  # Matches standalone "emergency"
+        r"\b1st\s*level\b|\b1st\s*\+?\s*level\s*support\b": "1st Level Support",
+        # Matches variations like "1stlevel", "1st level", "1st+level support"
+        r"\b2nd\s*level\b|\b2nd\s*\+?\s*level\s*support\b": "2nd Level Support"
+        # Matches variations like "2ndlevel", "2nd level", "2nd+level support"
+    }
 
-        if not match_idx.empty:
-            support_hour_value = df.iloc[match_idx[0], 1]  # Get value from second column
-            support_hour_value = support_hour_value.replace("\n", "").strip()
-            return support_hour_value  # Return the first found value immediately
+    for idx, row in df.iterrows():
+        text = row.iloc[0]  # First column (normalized text)
+        value = row.iloc[1]  # Second column (support hours value)
 
-    return None  # Return None if no match is found
+        # print(f"\nKey: {text}")
+        # print(f"Value: {value}\n")
+
+        if pd.notna(value):  # Ensure the value is valid
+            value = str(value).replace("\n", "").strip()
+
+            for regex, category in keyword_map.items():
+                if re.search(regex, text, re.IGNORECASE):  # Match found (case-insensitive)
+                    if not support_dict[category]:  # Store only first found value
+                        support_dict[category] = value
+
+    return support_dict
 
 
 # Function to extract all the tables from the support time page
@@ -650,7 +670,8 @@ def extract_dataframes_from_support_hour_pages(pdf_path, page_numbers):
          "service time (cet/cest if not stated otherwise)"],
         ["term", "service time"],
         ["term", "service time (cet if not stated otherwise)"],
-        ["term", "service time (cet/cest if not stated otherwise)"]
+        ["term", "service time (cet/cest if not stated otherwise)"],
+        ['term', 'service time (cet if not stated otherwise)']
     ]
 
     try:
@@ -665,6 +686,7 @@ def extract_dataframes_from_support_hour_pages(pdf_path, page_numbers):
             for i, table in enumerate(tables):
                 try:
                     df = table.df  # Convert table to DataFrame
+                    # print(df)
 
                     if df.empty:
                         continue  # Skip empty tables
@@ -682,10 +704,177 @@ def extract_dataframes_from_support_hour_pages(pdf_path, page_numbers):
                         df = df.iloc[:, :len(expected_columns)]  # Trim extra columns
                         df.columns = expected_columns  # Assign the expected headers
                         df = df[1:].reset_index(drop=True)  # Drop the first row (headers)
+                        # print(df)
                         extracted_dataframes.append(df)
 
                 except Exception as e:
                     print(f"\nError processing Table {i + 1}: {e}")  # Catch block
+
+    except Exception as e:
+        print(f"\nError processing the PDF file: {e}")
+
+    return extracted_dataframes  # Always return a list
+
+
+# ===========================================================
+# Extracting Support Level details from Run of Service table
+# ===========================================================
+
+# Function to extract the ros details from ros tables
+def extract_ros_details(dataframes):
+
+    ros_support_details = {
+        "1st Level Support": "",
+        "2nd / 3rd Level Support": ""
+    }
+
+    # Variations for 2nd / 3rd Level Support
+    second_third_variations = [
+        "2nd / 3rd Level Support",
+        "2nd/3rd Level Support",
+        "2nd Level Support",
+        "3rd Level Support"
+    ]
+
+    # Check each dataframe
+    for df in dataframes:
+        # Convert to string to safely handle mixed data
+        df_str = df.astype(str)
+
+        # Iterate over rows
+        for row_index in range(len(df_str)):
+            row_values = df_str.iloc[row_index].tolist()
+
+            # Iterate over each cell in the row to find keywords
+            for col_idx, cell_value in enumerate(row_values):
+
+                # 1) Check for "1st Level Support"
+                if "1st Level Support" in cell_value:
+                    # Gather all columns in this row that contain a tick
+                    ticked_columns = []
+                    for check_col_idx, cell_content in enumerate(row_values):
+                        if check_col_idx != col_idx and "✓" in cell_content:
+                            ticked_columns.append(df_str.columns[check_col_idx])
+
+                    # Store comma-separated column headers if any
+                    if ticked_columns:
+                        ros_support_details["1st Level Support"] = ", ".join(ticked_columns)
+
+                # 2) Check for any variant of "2nd / 3rd Level Support"
+                for variant in second_third_variations:
+                    if variant in cell_value:
+                        ticked_columns = []
+                        for check_col_idx, cell_content in enumerate(row_values):
+                            if check_col_idx != col_idx and "✓" in cell_content:
+                                ticked_columns.append(df_str.columns[check_col_idx])
+
+                        if ticked_columns:
+                            ros_support_details["2nd / 3rd Level Support"] = ", ".join(ticked_columns)
+
+    return ros_support_details
+
+
+# Function to check if the extracted headers match the given pattern
+def header_matches(headers, pattern):
+
+    # Wildcard-based check (requires exact column count)
+    if "*" in pattern:
+        if len(headers) != len(pattern):
+            return False
+        for h, p in zip(headers, pattern):
+            if p != "*" and h.lower() != p.lower():
+                return False
+        return True
+    else:
+        # For non-wildcard patterns, we check for subset presence (order is not important)
+        pattern_lower = set(item.lower() for item in pattern)
+        headers_lower = set(item.lower() for item in headers)
+        return pattern_lower.issubset(headers_lower)
+
+
+# Function to extract all the tables from the ros pages
+def extract_dataframes_from_ros_pages(pdf_path, page_numbers):
+
+    extracted_dataframes = []
+
+    # Sample list of values to check
+    target_values = [
+        "Delivery Support Process", "Delivery Support Processes",
+        "Support Processes", "Support Process",
+        "Service Processes", "Service Process", "Process Category"
+    ]
+
+    # Define possible valid column headers
+    valid_headers = [
+        ["Delivery Support Process", "Yes", "No"],
+        ["Delivery Support Processes", "Yes", "No"],
+        ["Support Processes", "Yes", "No"],
+        ["Service Processes", "Yes", "No"],
+        ["Process Category", "Delivery Support Process", "Yes", "No"],
+        ["Process Category", "Delivery Support Processes", "Yes", "No"],
+        ["Process Category", "Support Processes", "Yes", "No"],
+        ["Process Category", "Service Processes", "Yes", "No"],
+        ["Delivery Support Process", "*", "*"],
+        ["Delivery Support Process", "*", "*", "*"]
+    ]
+
+    try:
+        for page_number in page_numbers:
+            page_number_str = str(page_number)
+            tables = camelot.read_pdf(pdf_path, pages=page_number_str, flavor='lattice', line_scale=50)
+
+            if not tables or tables.n == 0:
+                continue  # Skip if no tables found
+
+            # Convert each table to a DataFrame
+            for i, table in enumerate(tables):
+                try:
+                    df = table.df  # Convert table to DataFrame
+                    df = df.replace(r'^\s*$', None, regex=True)
+                    # print(df)
+
+                    if df.empty:
+                        continue  # Skip empty tables
+
+                    # Assume first column is the one with categories
+                    col_name = df.columns[0]
+
+                    # Reset index to make slicing easier
+                    df = df.reset_index(drop=True)
+
+                    # Count target values and identify where any value occurs twice
+                    seen = {}
+                    cut_index = None
+
+                    for idx, val in df[col_name].items():
+                        if val in target_values:
+                            seen[val] = seen.get(val, 0) + 1
+                            if seen[val] == 2:
+                                cut_index = idx
+                                break
+
+                    # Trim the DataFrame if a duplicate was found
+                    if cut_index is not None:
+                        df = df.iloc[:cut_index]
+
+                    # Final cleaned DataFrame
+                    df = df.dropna(axis=1, how='all')
+                    # print(df)
+
+                    # Normalize headers by removing extra spaces and converting to lowercase
+                    headers = [re.sub(r'\s+', ' ', str(col)).strip() for col in df.iloc[0]]
+                    # print(f"\nExtracted Headers for Table {i+1}: {headers}")
+                    headers = [col for col in headers if col]
+                    # print(f"\nExtracted Headers for Table {i+1}: {headers}")    # Debug
+
+                    # Check if the table's headers match any of our valid header patterns
+                    if any(header_matches(headers, valid_pattern) for valid_pattern in valid_headers):
+                        df.columns = headers  # Assign the headers
+                        df = df[1:].reset_index(drop=True)  # Drop the header row
+                        extracted_dataframes.append(df)
+
+                except Exception as e:
+                    print(f"\nError processing Table {i + 1}: {e}")
 
     except Exception as e:
         print(f"\nError processing the PDF file: {e}")
@@ -746,13 +935,14 @@ def extract_numeric_availability(availability):
 
 # Function to store the extracted values to the Excel
 def insert_data_to_excel(excel_path, bsn_value, response_time_list, resolution_time_list, extracted_material_data,
-                         extracted_drc_value, support_hour_list):
+                         extracted_drc_value, support_hour_dict, ros_support_details):
     # Required columns
     columns = [
         "BSN Number", "Material No/Nos", "Availability",
         "Response Time P1", "Response Time P2", "Response Time P3", "Response Time P4",
         "Resolution Time P1", "Resolution Time P2", "Resolution Time P3", "Resolution Time P4",
-        "DRC Service", "Applicable DRC", "Applicable RPO", "Support Hours"
+        "DRC Service", "Applicable DRC", "Applicable RPO", "1st Level Support", "2nd Level Support",
+        "Emergency Support", "Non-Emergency Support", "1st Level Support Provided", "2nd/3rd Level Support Provided"
     ]
 
     # Load existing Excel file or create a new DataFrame
@@ -766,7 +956,7 @@ def insert_data_to_excel(excel_path, bsn_value, response_time_list, resolution_t
 
     new_rows = []
 
-    # Extract Material Data
+    # --- Material No & Availability ---
     material_no_list, availability_values = [], []
 
     for material, availability in extracted_material_data.items():
@@ -782,48 +972,40 @@ def insert_data_to_excel(excel_path, bsn_value, response_time_list, resolution_t
             material_no_list.append(material)
             availability_values.append(extract_numeric_availability(availability))
 
-    # Extract DRC values - Handle multiple DRC & RPO values
+    # --- DRC Values ---
     drc_service_list, drc_rto_list, drc_rpo_list = [], [], []
 
     for drc_service, values in extracted_drc_value.items():
-        applicable_drc = values.get("Applicable DRC", [])
-        applicable_rpo = values.get("Applicable RPO", [])
+        applicable_drc = values.get("Applicable DRC", []) or [""]
+        applicable_rpo = values.get("Applicable RPO", []) or [""]
 
-        if not applicable_drc:
-            applicable_drc = [""]
-        if not applicable_rpo:
-            applicable_rpo = [""]
-
-        # Expand each DRC and RPO combination into separate rows
         max_length = max(len(applicable_drc), len(applicable_rpo))
-
         for i in range(max_length):
             drc_rto = applicable_drc[i] if i < len(applicable_drc) else ""
             drc_rpo = applicable_rpo[i] if i < len(applicable_rpo) else ""
+            drc_service_list.append(drc_service)
+            drc_rto_list.append(drc_rto)
+            drc_rpo_list.append(drc_rpo)
 
-            drc_service_list.append(drc_service)  # Store DRC service name
-            drc_rto_list.append(drc_rto)  # Store DRC values
-            drc_rpo_list.append(drc_rpo)  # Store RPO values
+    # --- Determine max rows needed ---
+    max_rows = max(len(drc_service_list), len(material_no_list), 1)
 
-    # Process Support Hour List
-    filtered_support_hours = [sh for sh in support_hour_list if sh.strip()]  # Remove None and empty values
-    if not filtered_support_hours:
-        filtered_support_hours = [""]  # Keep at least one empty value
+    def expand_list(lst):
+        return lst + [lst[-1] if lst else ""] * (max_rows - len(lst))
 
-    # Determine max number of rows needed to align all values
-    max_rows = max(len(drc_service_list), len(material_no_list), len(filtered_support_hours), 1)
+    material_no_list = expand_list(material_no_list)
+    availability_values = expand_list(availability_values)
+    drc_service_list = expand_list(drc_service_list)
+    drc_rto_list = expand_list(drc_rto_list)
+    drc_rpo_list = expand_list(drc_rpo_list)
 
-    # Expand all lists to match max_rows
-    material_no_list += [material_no_list[-1] if material_no_list else ""] * (max_rows - len(material_no_list))
-    availability_values += [availability_values[-1] if availability_values else ""] * (
-                max_rows - len(availability_values))
-    filtered_support_hours += [filtered_support_hours[-1] if filtered_support_hours else ""] * (
-                max_rows - len(filtered_support_hours))
-    drc_service_list += [drc_service_list[-1] if drc_service_list else ""] * (max_rows - len(drc_service_list))
-    drc_rto_list += [drc_rto_list[-1] if drc_rto_list else ""] * (max_rows - len(drc_rto_list))
-    drc_rpo_list += [drc_rpo_list[-1] if drc_rpo_list else ""] * (max_rows - len(drc_rpo_list))
+    # --- Expand new support detail columns ---
+    first_level_support_provided = ros_support_details.get("1st Level Support", "")
+    second_third_level_support_provided = ros_support_details.get("2nd / 3rd Level Support", "")
+    first_level_support_list = [first_level_support_provided] * max_rows
+    second_level_support_list = [second_third_level_support_provided] * max_rows
 
-    # Creating new rows
+    # --- Row creation ---
     for i in range(max_rows):
         row = {
             "BSN Number": bsn_value,
@@ -840,14 +1022,21 @@ def insert_data_to_excel(excel_path, bsn_value, response_time_list, resolution_t
             "DRC Service": drc_service_list[i],
             "Applicable DRC": drc_rto_list[i],
             "Applicable RPO": drc_rpo_list[i],
-            "Support Hours": filtered_support_hours[i]
+            "1st Level Support": support_hour_dict.get("1st Level Support", ""),
+            "2nd Level Support": support_hour_dict.get("2nd Level Support", ""),
+            "Emergency Support": support_hour_dict.get("Emergency Support", ""),
+            "Non-Emergency Support": support_hour_dict.get("Non-Emergency Support", ""),
+            "1st Level Support Provided": first_level_support_list[i],
+            "2nd/3rd Level Support Provided": second_level_support_list[i]
         }
         new_rows.append(row)
 
-    # Append to DataFrame and save
+    # --- Append and display ---
     updated_df = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
     # print(f"\n{updated_df}")
     updated_df.to_excel(excel_path, index=False)
+
+    print(f"\nAll data inserted into {excel_path} successfully.")
 
 
 # =============
@@ -913,12 +1102,27 @@ def main(pdf_path, excel_path):
 
     if not filtered_support_hours:
         filtered_support_hours = [""]
+    # ----------------------------------------------------------------------------------------------------------------------#
 
+    ### Extract Run of Service details
+    ros_start_text = r"\d+\.\d+(\.\d+)?\sRun of Service"
+    ros_end_text = r"\d+\.\d+(\.\d+)?\sRetirement of Service"
+
+    start_pages, end_pages, ros_page_numbers = create_page_list(pdf_path, ros_start_text, ros_end_text)
+
+    if not ros_page_numbers:
+        ros_support_details = {
+            "1st Level Support": "",
+            "2nd / 3rd Level Support": ""
+        }
+    else:
+        extracted_ros_tables = extract_dataframes_from_ros_pages(pdf_path, ros_page_numbers)
+        ros_support_details = extract_ros_details(extracted_ros_tables)
     # ----------------------------------------------------------------------------------------------------------------------#
 
     ### Insert extracted data into Excel
     insert_data_to_excel(excel_path, bsn_value, response_time_list, resolution_time_list,
-                         extracted_material_data, extracted_drc_value, filtered_support_hours)
+                         extracted_material_data, extracted_drc_value, filtered_support_hours, ros_support_details)
 
 
 # =============================
@@ -927,7 +1131,7 @@ def main(pdf_path, excel_path):
 
 folder_path = r"C:\Users\rmya5fe\OneDrive - Allianz\01_Automated Reports\07_Sample_SDs"
 database_path = os.path.join(folder_path, "Database")
-excel_path = os.path.join(folder_path, "SLA_extract_from_SD.xlsx")
+excel_path = os.path.join(folder_path, "01_SLA_extract_from_SD.xlsx")
 
 # List all PDF files in the database folder
 pdf_files = [f for f in os.listdir(database_path) if f.lower().endswith(".pdf")]
