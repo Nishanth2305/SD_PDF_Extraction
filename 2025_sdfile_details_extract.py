@@ -221,7 +221,14 @@ def extract_data_from_material_tables(pdf_path, page_numbers):
 
                         # Logic for 2 columns table
                         if num_columns == 2:
-                            key = df.iloc[0, 0]
+                            val1 = df.iloc[0, 0]
+                            val2 = df.iloc[1, 0]
+
+                            if re.search(r'\b\d{6}\b', val2):
+                                key = val1 + ' ' + val2
+                            else:
+                                key = val1
+                            # key = df.iloc[0, 0]
                             value = df.iloc[1, 1]
 
                             cleaned_value = re.sub(r'\bPI\s*(?=\d|[^\w\s])', 'KPI', value,
