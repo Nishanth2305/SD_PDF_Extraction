@@ -745,7 +745,7 @@ def extract_ros_details(dataframes):
             for col_idx, cell_value in enumerate(row_values):
 
                 # 1) Check for "1st Level Support"
-                if "1st Level Support" in cell_value:
+                if "1st Level Support".lower() in cell_value.lower():
                     # Gather all columns in this row that contain a tick
                     ticked_columns = []
                     for check_col_idx, cell_content in enumerate(row_values):
@@ -758,7 +758,7 @@ def extract_ros_details(dataframes):
 
                 # 2) Check for any variant of "2nd / 3rd Level Support"
                 for variant in second_third_variations:
-                    if variant in cell_value:
+                    if variant.lower() in cell_value.lower():
                         ticked_columns = []
                         for check_col_idx, cell_content in enumerate(row_values):
                             if check_col_idx != col_idx and "✓" in cell_content:
@@ -1100,8 +1100,8 @@ def main(pdf_path, excel_path):
     # ----------------------------------------------------------------------------------------------------------------------#
 
     ### Extract Run of Service details
-    ros_start_text = r"\d+\.\d+(\.\d+)?\sRun of Service"
-    ros_end_text = r"\d+\.\d+(\.\d+)?\sRetirement of Service"
+    ros_start_text = r"\d+\.\d+(?:\.\d+)?\s(?:\w+\s)?Run of Service"
+    ros_end_text = r"\d+\.\d+(?:\.\d+)?\sRetirement of(?:\s\w+)? Service"
 
     start_pages, end_pages, ros_page_numbers = create_page_list(pdf_path, ros_start_text, ros_end_text)
 
@@ -1140,3 +1140,5 @@ for file_name in pdf_files:
     main(pdf_path, excel_path)
 
 print("\n=========>Processing completed for all PDF files.<=========\n")
+
+# 8010222
