@@ -1192,8 +1192,8 @@ def main(pdf_path, excel_path):
     # ----------------------------------------------------------------------------------------------------------------------#
 
     ### Extract Run of Service details
-    ros_start_text = r"\d+\.\d+(?:\.\d+)?\s(?:\w+\s)?Run of Service"
-    ros_end_text = r"\d+\.\d+(?:\.\d+)?\sRetirement of(?:\s\w+)? Service"
+    ros_start_text = r"\d+\.\d+(?:\.\d+)?(?:\w+)?RunofService"
+    ros_end_text = r"\d+\.\d+(?:\.\d+)?Retirementof(?:\w+)?Service"
 
     start_pages, end_pages, ros_page_numbers = create_page_list_run_of_service(pdf_path, ros_start_text, ros_end_text)
 
