@@ -1218,7 +1218,7 @@ def main(pdf_path, excel_path):
 
 folder_path = r"C:\Users\rmya5fe\OneDrive - Allianz\01_Automated Reports\07_Sample_SDs"
 database_path = os.path.join(folder_path, "Database")
-excel_path = os.path.join(folder_path, "01_SLA_extract_from_SD.xlsx")
+excel_path = os.path.join(folder_path, "02_SLA_extract_from_SD.xlsx")
 
 # List all PDF files in the database folder
 pdf_files = [f for f in os.listdir(database_path) if f.lower().endswith(".pdf")]
@@ -1232,5 +1232,3 @@ for file_name in pdf_files:
     main(pdf_path, excel_path)
 
 print("\n=========>Processing completed for all PDF files.<=========\n")
-
-# 8010222
