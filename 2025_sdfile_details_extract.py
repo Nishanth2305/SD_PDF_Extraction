@@ -177,6 +177,31 @@ def find_all_service_availability_and_support_hour_pages(pdf_path, search_text):
     return occurrences  # Return the full list of occurrences
 
 
+# Function to find all the occurrences of service availability text
+def find_all_run_of_service_pages(pdf_path, search_text):
+    occurrences = []  # List to store all occurrences
+    compiled_pattern = re.compile(search_text, re.IGNORECASE)
+
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page_number, page in enumerate(pdf.pages, start=1):  # Pages are 1-indexed
+                text = page.extract_text()
+                if text:  # Ensure the page contains text
+                    normalized_text = normalize_text(text).replace(' ', '')  # Normalize text
+
+                    if compiled_pattern.search(normalized_text):
+                        occurrences.append(page_number)  # Store the page number
+
+        # If no occurrences found, return an empty list
+        if not occurrences:
+            print(f"\nNo occurrences of '{search_text}' found in '{os.path.basename(pdf_path)}'.")
+
+    except Exception as e:
+        print(f"\nError processing '{os.path.basename(pdf_path)}': {e}")
+
+    return occurrences  # Return the full list of occurrences
+
+
 # =================================================
 # Extracting SA Material and Availability details
 # =================================================
@@ -736,7 +761,8 @@ def extract_ros_details(dataframes):
         "2nd / 3rd Level Support",
         "2nd/3rd Level Support",
         "2nd Level Support",
-        "3rd Level Support"
+        "3rd Level Support",
+        "1st / 2nd / 3rd Level Support"
     ]
 
     # Check each dataframe
@@ -752,11 +778,13 @@ def extract_ros_details(dataframes):
             for col_idx, cell_value in enumerate(row_values):
 
                 # 1) Check for "1st Level Support"
-                if "1st Level Support".lower() in cell_value.lower():
+                if ("1st Level Support".lower() in cell_value.lower()) or (
+                        "1st / 2nd / 3rd Level Support".lower() in cell_value.lower()):
                     # Gather all columns in this row that contain a tick
                     ticked_columns = []
                     for check_col_idx, cell_content in enumerate(row_values):
-                        if check_col_idx != col_idx and ("✓" in cell_content or "" in cell_content):
+                        if check_col_idx != col_idx and (
+                                "" in cell_content or "✓" in cell_content or "" in cell_content or "*" in cell_content or "yes" in cell_content or "no" in cell_content):
                             ticked_columns.append(df_str.columns[check_col_idx])
 
                     # Store comma-separated column headers if any
@@ -768,7 +796,8 @@ def extract_ros_details(dataframes):
                     if variant.lower() in cell_value.lower():
                         ticked_columns = []
                         for check_col_idx, cell_content in enumerate(row_values):
-                            if check_col_idx != col_idx and ("✓" in cell_content or "" in cell_content):
+                            if check_col_idx != col_idx and (
+                                    "" in cell_content or "✓" in cell_content or "" in cell_content or "*" in cell_content or "yes" in cell_content or "no" in cell_content):
                                 ticked_columns.append(df_str.columns[check_col_idx])
 
                         if ticked_columns:
@@ -794,6 +823,11 @@ def header_matches(headers, pattern):
         return pattern_lower.issubset(headers_lower)
 
 
+# Clean spaces from a list
+def clean_list_spaces(lst):
+    return [item.replace(' ', '').strip() for item in lst]
+
+
 # Function to extract all the tables from the ros pages
 def extract_dataframes_from_ros_pages(pdf_path, page_numbers):
     extracted_dataframes = []
@@ -808,7 +842,11 @@ def extract_dataframes_from_ros_pages(pdf_path, page_numbers):
     # Define possible valid column headers
     valid_headers = [
         ["Delivery Support Process", "Yes", "No"],
+        ["Delivery Support Process / Activity", "Yes", "No"],
+        ["Delivery Support Process/Activity", "Yes", "No"],
         ["Delivery Support Processes", "Yes", "No"],
+        ["Delivery Support Processes / Activity", "Yes", "No"],
+        ["Delivery Support Processes/Activity", "Yes", "No"],
         ["Support Processes", "Yes", "No"],
         ["Service Processes", "Yes", "No"],
         ["Process Category", "Delivery Support Process", "Yes", "No"],
@@ -860,7 +898,6 @@ def extract_dataframes_from_ros_pages(pdf_path, page_numbers):
 
                     # Final cleaned DataFrame
                     df = df.dropna(axis=1, how='all')
-                    # print(df)
 
                     # Normalize headers by removing extra spaces and converting to lowercase
                     headers = [re.sub(r'\s+', ' ', str(col)).strip() for col in df.iloc[0]]
@@ -868,17 +905,33 @@ def extract_dataframes_from_ros_pages(pdf_path, page_numbers):
                     headers = [col for col in headers if col]
                     # print(f"\nExtracted Headers for Table {i+1}: {headers}")    # Debug
 
+                    for valid in valid_headers:
+                        # Clean first entry in both (remove special chars, lower case)
+                        header_main = re.sub(r'[^a-zA-Z]', '', headers[0].lower())
+                        valid_main = re.sub(r'[^a-zA-Z]', '', valid[0].lower())
+
+                        # Cleaned sub-headers
+                        clean_header_tail = clean_list_spaces(headers[1:])
+                        clean_valid_tail = clean_list_spaces(valid[1:])
+
+                        if valid_main in header_main and clean_header_tail == clean_valid_tail:
+                            headers = valid
+
+                    # print(f"\nCleared Headers: {headers}")
+
                     # Check if the table's headers match any of our valid header patterns
                     if any(header_matches(headers, valid_pattern) for valid_pattern in valid_headers):
                         df.columns = headers  # Assign the headers
                         df = df[1:].reset_index(drop=True)  # Drop the header row
                         extracted_dataframes.append(df)
 
-                except Exception as e:
-                    print(f"\nError processing Table {i + 1}: {e}")
+                except:
+                    pass
+                    # print(f"\nError processing Table {i + 1}: {e}")
 
-    except Exception as e:
-        print(f"\nError processing the PDF file: {e}")
+    except:
+        pass
+        # print(f"\nError processing the PDF file: {e}")
 
     return extracted_dataframes  # Always return a list
 
@@ -893,6 +946,38 @@ def create_page_list(pdf_path, search_start_text, search_end_text):
 
     start_pages = find_all_service_availability_and_support_hour_pages(pdf_path, search_start_text)
     end_pages = find_all_service_availability_and_support_hour_pages(pdf_path, search_end_text)
+
+    # Remove index_page_number if present in both lists
+    if index_page_number in start_pages and index_page_number in end_pages:
+        start_pages.remove(index_page_number)
+        end_pages.remove(index_page_number)
+
+    # Remove any pages that are less than index_page_number
+    start_pages = [page for page in start_pages if page >= index_page_number]
+    end_pages = [page for page in end_pages if page >= index_page_number]
+
+    # Ensure material_end_pages do not contain pages lower than the lowest start page
+    if start_pages:
+        lowest_start_page = min(start_pages)
+        end_pages = [page for page in end_pages if page >= lowest_start_page]
+
+    # Get the continuous range of page numbers
+    if start_pages and end_pages:
+        lowest_page = min(start_pages + end_pages)
+        highest_page = max(start_pages + end_pages)
+        page_numbers = list(range(lowest_page, highest_page + 1))
+    else:
+        page_numbers = []  # No valid range if lists are empty
+
+    return start_pages, end_pages, page_numbers
+
+
+# Function to generate a continuous page list
+def create_page_list_run_of_service(pdf_path, search_start_text, search_end_text):
+    index_page_number = find_index_page_number(pdf_path)
+
+    start_pages = find_all_run_of_service_pages(pdf_path, search_start_text)
+    end_pages = find_all_run_of_service_pages(pdf_path, search_end_text)
 
     # Remove index_page_number if present in both lists
     if index_page_number in start_pages and index_page_number in end_pages:
@@ -1110,7 +1195,7 @@ def main(pdf_path, excel_path):
     ros_start_text = r"\d+\.\d+(?:\.\d+)?\s(?:\w+\s)?Run of Service"
     ros_end_text = r"\d+\.\d+(?:\.\d+)?\sRetirement of(?:\s\w+)? Service"
 
-    start_pages, end_pages, ros_page_numbers = create_page_list(pdf_path, ros_start_text, ros_end_text)
+    start_pages, end_pages, ros_page_numbers = create_page_list_run_of_service(pdf_path, ros_start_text, ros_end_text)
 
     if not ros_page_numbers:
         ros_support_details = {
