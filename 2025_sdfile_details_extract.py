@@ -756,7 +756,7 @@ def extract_ros_details(dataframes):
                     # Gather all columns in this row that contain a tick
                     ticked_columns = []
                     for check_col_idx, cell_content in enumerate(row_values):
-                        if check_col_idx != col_idx and "✓" in cell_content:
+                        if check_col_idx != col_idx and ("✓" in cell_content or "" in cell_content):
                             ticked_columns.append(df_str.columns[check_col_idx])
 
                     # Store comma-separated column headers if any
@@ -768,7 +768,7 @@ def extract_ros_details(dataframes):
                     if variant.lower() in cell_value.lower():
                         ticked_columns = []
                         for check_col_idx, cell_content in enumerate(row_values):
-                            if check_col_idx != col_idx and "✓" in cell_content:
+                            if check_col_idx != col_idx and ("✓" in cell_content or "" in cell_content):
                                 ticked_columns.append(df_str.columns[check_col_idx])
 
                         if ticked_columns:
